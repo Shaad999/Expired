@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Expired Checklist</title>
+  <style>
+    :root{--bg:#ffffff;--fg:#111111;--card:#f9f9f9;--muted:#555555;--accent:#111111;--danger:#e63946;--ok:#2a9d8f;--soon:#e9c46a}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--fg);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .app{width:100%;max-width:1000px;min-width:320px;background:var(--card);border-radius:12px;padding:30px;box-shadow:0 8px 25px rgba(0,0,0,0.1);display:flex;flex-direction:column;max-height:90vh;overflow-y:auto}
+    header{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+    .logo{width:52px;height:52px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:18px}
+    h1{font-size:22px;margin-bottom:4px}
+    p.lead{color:var(--muted);font-size:14px}
+    .controls{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+    .card{background:#fff;border:1px solid #e6e6e6;padding:16px;border-radius:12px;flex:1;min-width:250px}
+    .input,button,select{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;color:var(--fg)}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row .input{flex:1;min-width:80px}
+    button{transition:all 0.2s ease}
+    button:active{transform:scale(0.95);opacity:0.8}
+    button:hover{filter:brightness(1.05)}
+    button.primary{background:var(--accent);border:none;color:#fff;font-weight:600;cursor:pointer}
+    button.ghost{background:#fff;border:1px solid #ccc;cursor:pointer}
+    .chips button{padding:6px 12px;border-radius:999px;border:1px solid #ccc;background:#fff;cursor:pointer;font-size:13px;font-weight:600}
+    .chips button[data-filter="expired"].active{background:#fdecea;color:var(--danger);border:none}
+    .chips button[data-filter="soon"].active{background:#fff6e5;color:var(--soon);border:none}
+    .chips button[data-filter="ok"].active{background:#e8f9f5;color:var(--ok);border:none}
+    .chips button[data-filter="all"].active{background:var(--accent);color:#fff;border:none}
+    .list{margin-top:18px;display:flex;flex-direction:column;gap:10px;max-height:400px;overflow-y:auto;padding-right:4px}
+    .item{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px;border-radius:12px;background:#fff;border:1px solid #e6e6e6}
+    .item .meta{flex:2;min-width:180px}
+    .title{font-weight:600;font-size:15px}
+    .code{font-weight:700;color:var(--accent);margin-right:6px}
+    .date{font-size:13px;color:var(--muted)}
+    .badges{flex:1;display:flex;gap:8px;flex-wrap:wrap}
+    .badge{padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px}
+    .expired{background:#fdecea;color:var(--danger)}
+    .soon{background:#fff6e5;color:var(--soon)}
+    .ok{background:#e8f9f5;color:var(--ok)}
+    .actions{display:flex;gap:6px;flex-wrap:wrap}
+    .small{padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #ddd;background:#fff}
+    .danger{background:#fdecea;color:var(--danger);border:1px solid #f5c2c7}
+    footer{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:14px;font-size:14px;color:var(--muted);flex-wrap:wrap}
+    @media(max-width:700px){.controls{flex-direction:column}.row{flex-direction:column}}
+    #reader{width:100%;max-width:400px;margin-bottom:15px;border:1px solid #ddd;padding:8px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="logo">EX</div>
+      <div>
+        <h1>Expired Checklist</h1>
+        <p class="lead">মেয়াদ শেষ হওয়ার তারিখগুলো সহজভাবে ট্র্যাক করুন।</p>
+      </div>
+    </header>
+
+    <div id="reader"></div> <!-- QR/Barcode Scanner -->
+
+    <div class="controls">
+      <div class="card" style="flex:2">
+        <div class="row">
+          <input id="code" class="input" placeholder="আইটেম কোড" style="max-width:120px"/>
+          <input id="name" class="input" placeholder="আইটেমের নাম লিখুন"/>
+          <input id="expiry" class="input" type="date"/>
+          <button id="addBtn" class="primary">যোগ করুন</button>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="search" class="input" placeholder="খুঁজুন..." style="flex:2"/>
+          <select id="sort" class="input" style="max-width:180px">
+            <option value="soon">তারিখ (প্রথমে শিগগিরই)</option>
+            <option value="late">তারিখ (প্রথমে দেরিতে)</option>
+            <option value="name">নাম অনুযায়ী</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:280px">
+        <label style="font-size:13px;color:var(--muted);margin-bottom:6px;display:block">ফিল্টার</label>
+        <div class="chips" style="margin-bottom:10px">
+          <button data-filter="all" class="active">সব</button>
+          <button data-filter="expired">Expired</button>
+          <button data-filter="soon">Soon</button>
+          <button data-filter="ok">Okey</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="clearExpired" class="ghost small">Expired মুছুন</button>
+          <button id="exportBtn" class="primary small">CSV এক্সপোর্ট</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="list" id="list"></div>
+
+    <footer>
+      <div id="stats">0 আইটেম — 0 Expired</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="importSample" class="ghost small">Sample ডেটা</button>
+        <button id="clearAll" class="danger small">সব মুছুন</button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <!-- HTML5 QR Code SDK -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyD6IfPn1mrs-iF-ttU2ULlAWxKmjFGtkN0",
+      authDomain: "expired-check.firebaseapp.com",
+      databaseURL: "https://expired-check-default-rtdb.firebaseio.com",
+      projectId: "expired-check",
+      storageBucket: "expired-check.firebasestorage.app",
+      messagingSenderId: "665593489141",
+      appId: "1:665593489141:web:227d5d1bffa8db271cc7bc",
+      measurementId: "G-4JG8Q80CME"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const SELECTORS = {
+      code: document.getElementById('code'),
+      name: document.getElementById('name'),
+      expiry: document.getElementById('expiry'),
+      addBtn: document.getElementById('addBtn'),
+      list: document.getElementById('list'),
+      search: document.getElementById('search'),
+      sort: document.getElementById('sort'),
+      stats: document.getElementById('stats'),
+      exportBtn: document.getElementById('exportBtn'),
+      clearExpired: document.getElementById('clearExpired'),
+      clearAll: document.getElementById('clearAll'),
+      importSample: document.getElementById('importSample')
+    };
+
+    let items = [];
+    let filter = 'all';
+
+    function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+    function daysBetween(d){ const today = new Date(); const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()); const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return Math.floor((x-t)/(1000*60*60*24)); }
+    function statusFor(dateStr){ const d = new Date(dateStr); const diff = daysBetween(d); if(isNaN(diff)) return {label:'তারিখ নেই',cls:'ok'}; if(diff<0) return {label:`${Math.abs(diff)} দিন আগে`,cls:'expired'}; if(diff===0) return {label:'আজ',cls:'soon'}; if(diff<=7) return {label:`${diff} দিন বাকি`,cls:'soon'}; return {label:`${diff} দিন বাকি`,cls:'ok'} }
+
+    function saveLocal(){ localStorage.setItem('expired-checklist', JSON.stringify(items)); }
+    function render(){
+      const q = SELECTORS.search.value.trim().toLowerCase();
+      const sortBy = SELECTORS.sort.value;
+      let out = items.slice();
+
+      if(q) out = out.filter(i=>(i.name+i.code).toLowerCase().includes(q));
+      if(filter==='expired') out = out.filter(i=>daysBetween(new Date(i.expiry))<0);
+      if(filter==='soon') out = out.filter(i=>{ const d = daysBetween(new Date(i.expiry)); return d>=0 && d<=7; });
+      if(filter==='ok') out = out.filter(i=>daysBetween(new Date(i.expiry))>7);
+
+      if(sortBy==='soon') out.sort((a,b)=> new Date(a.expiry)-new Date(b.expiry));
+      if(sortBy==='late') out.sort((a,b)=> new Date(b.expiry)-new Date(a.expiry));
+      if(sortBy==='name') out.sort((a,b)=> a.name.localeCompare(b.name));
+
+      SELECTORS.list.innerHTML='';
+      out.forEach(i=>{
+        const s=statusFor(i.expiry);
+        const itemEl=document.createElement('div'); itemEl.className='item';
+        const meta=document.createElement('div'); meta.className='meta';
+        meta.innerHTML=`<div class="title"><span class="code">${i.code||'-'}</span> ${i.name}</div>
+                        <div class="date">${i.expiry?new Date(i.expiry).toLocaleDateString('bn-BD'):'তারিখ নেই'}</div>`;
+        const badges=document.createElement('div'); badges.className='badges';
+        const b1=document.createElement('div'); b1.className='badge '+s.cls; b1.textContent=s.label;
+        badges.appendChild(b1);
+        const actions=document.createElement('div'); actions.className='actions';
+        const doneBtn=document.createElement('button'); doneBtn.className='small'; doneBtn.textContent='Done';
+        doneBtn.onclick=()=>{ removeItem(i.id); }
+        const editBtn=document.createElement('button'); editBtn.className='small ghost'; editBtn.textContent='Edit';
+        editBtn.onclick=()=>{ SELECTORS.code.value=i.code; SELECTORS.name.value=i.name; SELECTORS.expiry.value=i.expiry; window.scrollTo({top:0,behavior:'smooth'}); }
+        const delBtn=document.createElement('button'); delBtn.className='small danger'; delBtn.textContent='Delete';
+        delBtn.onclick=()=>{ if(confirm('মুছতে চান?')) removeItem(i.id); }
+        actions.appendChild(doneBtn); actions.appendChild(editBtn); actions.appendChild(delBtn);
+
+        itemEl.appendChild(meta); itemEl.appendChild(badges); itemEl.appendChild(actions);
+        SELECTORS.list.appendChild(itemEl);
+      });
+
+      const total = items.length; const expired = items.filter(i=>daysBetween(new Date(i.expiry))<0).length;
+      SELECTORS.stats.textContent=`${total} আইটেম — ${expired} Expired`;
+    }
+
+    function removeItem(id){
+      items = items.filter(x=>x.id!==id);
+      saveLocal();
+      db.ref('items/'+id).remove();
+      render();
+    }
+
+    // Firebase load
+    db.ref('items').on('value', snapshot=>{
+      const data = snapshot.val();
+      if(data){
+        items = Object.values(data);
+        saveLocal();
+        render();
+      }
+    });
+
+    SELECTORS.addBtn.addEventListener('click', ()=>{
+      const code = SELECTORS.code.value.trim();
+      const name = SELECTORS.name.value.trim();
+      const expiry = SELECTORS.expiry.value || null;
+      if(!name){ alert('নাম লিখুন'); return; }
+      const newItem = {id: uid(), code, name, expiry};
+      items.push(newItem);
+      saveLocal();
+      db.ref('items/'+newItem.id).set(newItem);
+      render();
+      SELECTORS.code.value=''; SELECTORS.name.value=''; SELECTORS.expiry.value='';
+    });
+
+    SELECTORS.search.addEventListener('input', render);
+    SELECTORS.sort.addEventListener('change', render);
+    document.querySelectorAll('.chips button').forEach(b=>{ b.addEventListener('click', ()=>{ document.querySelectorAll('.chips button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); filter=b.dataset.filter; render(); }) });
+
+    SELECTORS.clearExpired.addEventListener('click', ()=>{
+      if(!confirm('সব Expired আইটেম মুছবেন?')) return;
+      items.filter(i=>daysBetween(new Date(i.expiry))<0).forEach(i=> db.ref('items/'+i.id).remove());
+      items = items.filter(i=>daysBetween(new Date(i.expiry))>=0);
+      saveLocal();
+      render();
+    });
+
+    SELECTORS.clearAll.addEventListener('click', ()=>{
+      if(!confirm('সব মুছে ফেলবেন?')) return;
+      items.forEach(i=> db.ref('items/'+i.id).remove());
+      items = [];
+      saveLocal();
+      render();
+    });
+
+    SELECTORS.importSample.addEventListener('click', ()=>{
+      const sample=[
+        {id:uid(), code:'P001', name:'দুধ', expiry:new Date(Date.now()-2*24*3600*1000).toISOString().slice(0,10)},
+        {id:uid(), code:'P002', name:'ফেসওয়াশ', expiry:new Date(Date.now()+2*24*3600*1000).toISOString().slice(0,10)},
+        {id:uid(), code:'P003', name:'ভ্যাকসিন ডোজ A', expiry:new Date(Date.now()+12*24*3600*1000).toISOString().slice(0,10)},
+        {id:uid(), code:'P004', name:'প্যারাসিটামল', expiry:new Date(Date.now()-10*24*3600*1000).toISOString().slice(0,10)}
+      ];
+      sample.forEach(s=>{
+        items.push(s);
+        db.ref('items/'+s.id).set(s);
+      });
+      saveLocal(); render();
+    });
+
+    // QR/Barcode Scanner
+    function onScanSuccess(decodedText, decodedResult){
+      SELECTORS.code.value = decodedText;
+      const existing = items.find(i=>i.code===decodedText);
+      if(existing) SELECTORS.name.value = existing.name;
+      else SELECTORS.name.value = '';
+    }
+
+    const html5QrcodeScanner = new Html5Qrcode("reader");
+    Html5Qrcode.getCameras().then(cameras=>{
+      if(cameras && cameras.length){
+        html5QrcodeScanner.start(
+          cameras[0].id,
+          { fps: 10, qrbox: 250 },
+          onScanSuccess
+        ).catch(err=>console.error("Scanner error:", err));
+      } else console.error("কোনো ক্যামেরা পাওয়া যায়নি");
+    }).catch(err=>console.error("Camera fetch error:", err));
+
+    // LocalStorage load
+    const saved = JSON.parse(localStorage.getItem('expired-checklist')||'[]');
+    if(saved.length){ items = saved; render(); }
+  </script>
+</body>
+</html>
