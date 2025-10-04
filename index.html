@@ -251,24 +251,42 @@
       saveLocal(); render();
     });
 
-    // QR/Barcode Scanner
-    function onScanSuccess(decodedText, decodedResult){
-      SELECTORS.code.value = decodedText;
-      const existing = items.find(i=>i.code===decodedText);
-      if(existing) SELECTORS.name.value = existing.name;
-      else SELECTORS.name.value = '';
-    }
+  // === QR/Barcode Scanner ===
+  function onScanSuccess(decodedText, decodedResult){
+    SELECTORS.code.value = decodedText;
 
-    const html5QrcodeScanner = new Html5Qrcode("reader");
-    Html5Qrcode.getCameras().then(cameras=>{
-      if(cameras && cameras.length){
-        html5QrcodeScanner.start(
-          cameras[0].id,
-          { fps: 10, qrbox: 250 },
-          onScanSuccess
-        ).catch(err=>console.error("Scanner error:", err));
-      } else console.error("কোনো ক্যামেরা পাওয়া যায়নি");
-    }).catch(err=>console.error("Camera fetch error:", err));
+    // Firebase থেকে নাম auto fill
+    const found = items.find(i => i.code === decodedText);
+    if(found){
+      SELECTORS.name.value = found.name;
+      SELECTORS.expiry.value = found.expiry || '';
+    } else {
+      SELECTORS.name.value = '';
+      SELECTORS.expiry.value = '';
+    }
+  }
+
+  const html5QrCode = new Html5Qrcode("reader");
+
+  Html5Qrcode.getCameras().then(cameras => {
+    if (cameras && cameras.length) {
+      // back camera নির্বাচন
+      let backCam = cameras.find(c => 
+        c.label.toLowerCase().includes("back") || 
+        c.label.toLowerCase().includes("rear")
+      );
+
+      let cameraId = backCam ? backCam.id : cameras[0].id;
+
+      html5QrCode.start(
+        cameraId,
+        { fps: 10, qrbox: 250 },
+        onScanSuccess
+      ).catch(err => console.error("Scanner error:", err));
+    } else {
+      console.error("কোনো ক্যামেরা পাওয়া যায়নি");
+    }
+  }).catch(err => console.error("Camera fetch error:", err));
 
     // LocalStorage load
     const saved = JSON.parse(localStorage.getItem('expired-checklist')||'[]');
