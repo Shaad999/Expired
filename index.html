@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QR / Barcode Scanner</title>
+  <title>QR / Barcode Scanner with Auto Product Name</title>
   <style>
     body{font-family:"Segoe UI",Arial,sans-serif;background:#f9f9f9;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
     h1{margin-bottom:20px;color:#333}
     #reader{width:100%;max-width:400px;margin-bottom:15px;border:1px solid #ddd;padding:8px;border-radius:8px;background:#fff}
-    input{padding:10px 12px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:400px;font-size:16px}
+    input{padding:10px 12px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:400px;font-size:16px;margin-bottom:10px}
   </style>
 </head>
 <body>
@@ -17,24 +17,41 @@
   <!-- Camera Scanner -->
   <div id="reader"></div>
 
-  <!-- Auto Filled Code -->
-  <input id="code" placeholder="স্ক্যান করা কোড এখানে আসবে..." readonly />
+  <!-- Auto Filled Fields -->
+  <input id="code" placeholder="কোড..." readonly />
+  <input id="name" placeholder="আইটেম নাম..." readonly />
 
   <!-- QR Scanner Library -->
   <script src="https://unpkg.com/html5-qrcode"></script>
   <script>
     const codeInput = document.getElementById("code");
+    const nameInput = document.getElementById("name");
     const html5QrCode = new Html5Qrcode("reader");
 
-    function onScanSuccess(decodedText, decodedResult) {
-      // কোড বসিয়ে দিবে
+    // স্ক্যান হলে চলবে
+    async function onScanSuccess(decodedText, decodedResult) {
       codeInput.value = decodedText;
+      nameInput.value = "লোড হচ্ছে...";
+
+      try {
+        // OpenFoodFacts API থেকে ডেটা আনা
+        let res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${decodedText}.json`);
+        let data = await res.json();
+
+        if(data && data.status === 1){
+          nameInput.value = data.product.product_name || "নাম পাওয়া যায়নি";
+        } else {
+          nameInput.value = "কোনো নাম পাওয়া যায়নি";
+        }
+      } catch(err){
+        nameInput.value = "Error!";
+        console.error(err);
+      }
     }
 
     // ক্যামেরা চালু
     Html5Qrcode.getCameras().then(cameras => {
       if (cameras && cameras.length) {
-        // back camera খুঁজে নাও
         let backCam = cameras.find(c =>
           c.label.toLowerCase().includes("back") || 
           c.label.toLowerCase().includes("rear")
