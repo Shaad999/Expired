@@ -3,70 +3,502 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QR / Barcode Scanner with Auto Product Name</title>
+  <title>Expiry Checklist (Offline-first + Firebase + Barcode)</title>
+
+  <!-- Simple styles (responsive) -->
   <style>
-    body{font-family:"Segoe UI",Arial,sans-serif;background:#f9f9f9;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
-    h1{margin-bottom:20px;color:#333}
-    #reader{width:100%;max-width:400px;margin-bottom:15px;border:1px solid #ddd;padding:8px;border-radius:8px;background:#fff}
-    input{padding:10px 12px;border:1px solid #ccc;border-radius:6px;width:100%;max-width:400px;font-size:16px;margin-bottom:10px}
+    :root{--bg:#f6f7fb;--card:#fff;--fg:#0f1724;--muted:#6b7280;--accent:#0ea5a4}
+    [data-theme="dark"]{--bg:#071023;--card:#0b1220;--fg:#e6eef2;--muted:#9aa6b2;--accent:#34d399}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Arial;background:var(--bg);color:var(--fg);min-height:100vh;padding:18px;display:flex;justify-content:center}
+    .app{width:100%;max-width:1000px}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    h1{font-size:20px;margin:0}
+    .muted{color:var(--muted)}
+    .card{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 6px 18px rgba(3,7,18,0.06)}
+    .grid{display:grid;gap:8px}
+    .form-grid{grid-template-columns: 1fr 140px 130px 90px; display:grid; gap:8px}
+    input,select,button{padding:10px;border-radius:8px;border:1px solid rgba(15,23,36,0.06);font-size:14px}
+    input[type="date"]{padding:8px}
+    .actions{display:flex;gap:8px}
+    .search-row{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
+    .list{margin-top:12px;display:grid;gap:8px}
+    .item{display:flex;align-items:center;gap:12px;padding:10px;border-radius:10px;border:1px solid rgba(15,23,36,0.04)}
+    .meta{flex:1}
+    .name{font-weight:600}
+    .small{font-size:13px;color:var(--muted)}
+    .badge{padding:6px 8px;border-radius:999px;font-size:13px}
+    .expired{background:#fee2e2;color:#991b1b}
+    .near{background:#fffbeb;color:#92400e}
+    .ok{background:#ecfeff;color:#075985}
+    .tiny{font-size:12px;padding:6px 8px}
+    .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+    @media (max-width:760px){
+      .form-grid{grid-template-columns:1fr 1fr}
+      .controls{display:none}
+    }
+    /* scanner preview */
+    #reader { width:100%; max-width:360px; margin-top:8px; border-radius:8px; overflow:hidden;}
+    .row{display:flex;gap:8px;align-items:center}
   </style>
 </head>
 <body>
-  <h1>QR / Barcode Scanner</h1>
+  <div class="app">
+    <header style="align-items:flex-start">
+      <div>
+        <h1>Expiry Checklist</h1>
+        <div class="small muted">Offline-first + Auto-sync to Firebase + Barcode scan</div>
+      </div>
 
-  <!-- Camera Scanner -->
-  <div id="reader"></div>
+      <div class="controls">
+        <label class="small muted">Dark</label>
+        <input id="themeToggle" type="checkbox" />
+        <button id="exportBtn">Export CSV</button>
+        <button id="clearAll" style="background:#ef4444;color:white">Clear All</button>
+      </div>
+    </header>
 
-  <!-- Auto Filled Fields -->
-  <input id="code" placeholder="কোড..." readonly />
-  <input id="name" placeholder="আইটেম নাম..." readonly />
+    <section class="card">
+      <div class="grid">
+        <form id="addForm" class="form-grid" onsubmit="return false;">
+          <input id="itemName" placeholder="পণ্যের নাম (অপসনাল)" />
+          <input id="barcodeInput" placeholder="Barcode / Code" />
+          <input id="expiryDate" type="date" />
+          <div class="actions">
+            <button id="addBtn" type="button">Add</button>
+            <button id="scanBtn" type="button" style="background:#6366f1;color:white">Scan</button>
+          </div>
+        </form>
 
-  <!-- QR Scanner Library -->
-  <script src="https://unpkg.com/html5-qrcode"></script>
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="search" placeholder="Search name or category" />
+            <select id="filter">
+              <option value="all">All</option>
+              <option value="expired">Expired</option>
+              <option value="near">Near (7 days)</option>
+              <option value="ok">Not Near</option>
+              <option value="unsynced">Unsynced</option>
+            </select>
+            <button id="sortBtn">Sort by Date</button>
+          </div>
+          <div class="small muted" id="statusBar">Status: <span id="onlineStatus">Checking...</span></div>
+        </div>
+
+        <div id="reader" style="display:none"></div>
+
+        <div id="list" class="list"></div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          <div class="small muted">Saved locally — data stored in browser (and synced to Firebase when online)</div>
+          <div style="display:flex;gap:8px">
+            <button id="importBtn" style="background:#f59e0b;color:white">Import CSV</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Libraries: Firebase (compat for simplicity) and html5-qrcode for scanning -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
+
   <script>
-    const codeInput = document.getElementById("code");
-    const nameInput = document.getElementById("name");
-    const html5QrCode = new Html5Qrcode("reader");
+  /*********************************************************
+   *  CONFIG: your Firebase config (you already provided)
+   *********************************************************/
+  const firebaseConfig = {
+    apiKey: "AIzaSyD6IfPn1mrs-iF-ttU2ULlAWxKmjFGtkN0",
+    authDomain: "expired-check.firebaseapp.com",
+    databaseURL: "https://expired-check-default-rtdb.firebaseio.com",
+    projectId: "expired-check",
+    storageBucket: "expired-check.firebasestorage.app",
+    messagingSenderId: "665593489141",
+    appId: "1:665593489141:web:227d5d1bffa8db271cc7bc",
+    measurementId: "G-4JG8Q80CME"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
 
-    // স্ক্যান হলে চলবে
-    async function onScanSuccess(decodedText, decodedResult) {
-      codeInput.value = decodedText;
-      nameInput.value = "লোড হচ্ছে...";
+  /*********************************************************
+   *  App state & helpers
+   *********************************************************/
+  const LS_KEY = 'expiry.checklist.v2'
+  let items = load()
+  let sortAsc = true
 
-      try {
-        // OpenFoodFacts API থেকে ডেটা আনা
-        let res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${decodedText}.json`);
-        let data = await res.json();
+  const el = id => document.getElementById(id)
+  const nameInput = el('itemName')
+  const barcodeInput = el('barcodeInput')
+  const dateInput = el('expiryDate')
+  const addBtn = el('addBtn')
+  const scanBtn = el('scanBtn')
+  const listEl = el('list')
+  const searchInput = el('search')
+  const filterEl = el('filter')
+  const sortBtn = el('sortBtn')
+  const exportBtn = el('exportBtn')
+  const importBtn = el('importBtn')
+  const clearAllBtn = el('clearAll')
+  const statusBar = el('onlineStatus')
+  const readerDiv = el('reader')
+  const themeToggle = el('themeToggle')
 
-        if(data && data.status === 1){
-          nameInput.value = data.product.product_name || "নাম পাওয়া যায়নি";
-        } else {
-          nameInput.value = "কোনো নাম পাওয়া যায়নি";
-        }
-      } catch(err){
-        nameInput.value = "Error!";
-        console.error(err);
-      }
+  function save(){ localStorage.setItem(LS_KEY, JSON.stringify(items)) }
+  function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)) || [] }catch(e){ return [] } }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6) }
+
+  function daysDiff(dateString){
+    const today = new Date()
+    const d = new Date(dateString)
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const diff = Math.floor((t - new Date(today.getFullYear(), today.getMonth(), today.getDate()))/(1000*60*60*24))
+    return diff
+  }
+  function statusForDate(dateStr){
+    if (!dateStr) return {label:'No date', cls:'ok', days:null}
+    const diff = daysDiff(dateStr)
+    if (diff < 0) return {label:'Expired', cls:'expired', days:diff}
+    if (diff <= 7) return {label:'Near', cls:'near', days:diff}
+    return {label:'OK', cls:'ok', days:diff}
+  }
+
+  function formatDate(s){ if(!s) return '-'; const d=new Date(s); if(isNaN(d)) return '-'; return d.toLocaleDateString('bn-BD') }
+  function escapeHtml(t){ return String(t).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":\"&#39;\"})[c]) }
+
+  /*********************************************************
+   *  Rendering
+   *********************************************************/
+  function render(){
+    const q = searchInput.value.trim().toLowerCase()
+    const filter = filterEl.value
+    listEl.innerHTML = ''
+    let shown = items.slice()
+    shown.sort((a,b)=> sortAsc ? new Date(a.expiry||0) - new Date(b.expiry||0) : new Date(b.expiry||0) - new Date(a.expiry||0))
+
+    shown = shown.filter(it=>{
+      if (q){ if (!( (it.name||'').toLowerCase().includes(q) || (it.code||'').toLowerCase().includes(q) || (it.category||'').toLowerCase().includes(q))) return false }
+      const s = statusForDate(it.expiry)
+      if (filter === 'expired' && s.label !== 'Expired') return false
+      if (filter === 'near' && s.label !== 'Near') return false
+      if (filter === 'ok' && s.label !== 'OK') return false
+      if (filter === 'unsynced' && it.synced) return false
+      return true
+    })
+
+    if (shown.length === 0){ listEl.innerHTML = '<div class="small muted">কোন আইটেম নেই</div>'; return }
+
+    shown.forEach(it=>{
+      const s = statusForDate(it.expiry)
+      const div = document.createElement('div'); div.className='item'
+      div.innerHTML = `
+        <div class="meta">
+          <div class="name">${escapeHtml(it.name||'(no name)')} <span class="small muted">• ${escapeHtml(it.code||'(no code)')}</span></div>
+          <div class="small muted">Expiry: ${formatDate(it.expiry)} • Added: ${formatDate(it.added)}</div>
+          <div class="small muted">Sync: ${it.synced? 'online':'pending'}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="badge ${s.cls}">${s.label}${s.label!=='OK' && s.days!==null ? ' ('+Math.abs(s.days)+'d)':''}</div>
+          <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">
+            <button class="tiny" onclick="toggleDone('${it.id}')">${it.done? 'Undo':'Done'}</button>
+            <button class="tiny" onclick="editItem('${it.id}')">Edit</button>
+            <button class="tiny" onclick="removeItem('${it.id}')" style="background:#ef4444;color:white">Remove</button>
+          </div>
+        </div>
+      `
+      if (it.done) div.style.opacity = 0.6
+      listEl.appendChild(div)
+    })
+  }
+
+  /*********************************************************
+   *  CRUD
+   *********************************************************/
+  addBtn.addEventListener('click', async ()=>{
+    const name = nameInput.value.trim()
+    const code = barcodeInput.value.trim()
+    const expiry = dateInput.value || null
+    if (!name && !code){ return alert('কমপক্ষে নাম অথবা কোড লাগবে') }
+
+    // if name empty but code present try auto-fill immediately (optional)
+    let finalName = name || ''
+    if (!finalName && code){
+      finalName = await fetchNameForCode(code)
     }
 
-    // ক্যামেরা চালু
+    const item = { id: uid(), name: finalName, code, expiry, added: new Date().toISOString(), done:false, synced:false }
+    items.push(item); save(); render()
+    // try to sync now if online
+    if (navigator.onLine) syncPending()
+    // clear inputs
+    nameInput.value=''; barcodeInput.value=''; dateInput.value=''
+  })
+
+  window.removeItem = function(id){
+    if (!confirm('মুছে ফেলতে চান?')) return
+    items = items.filter(i=>i.id!==id); save(); render()
+    // remove on firebase as well (if synced stored with firebaseKey)
+    // We store checklist under /checklist/{id} matching our id; attempt remove
+    if (navigator.onLine){
+      db.ref('checklist/'+id).remove().catch(()=>{})
+    }
+  }
+
+  window.toggleDone = function(id){
+    items = items.map(i=> i.id===id? {...i, done: !i.done, synced:false} : i)
+    save(); render()
+    if (navigator.onLine) syncPending()
+  }
+
+  window.editItem = function(id){
+    const it = items.find(x=>x.id===id); if(!it) return
+    const newName = prompt('নাম পরিবর্তন করো', it.name||'')
+    if (newName === null) return
+    it.name = newName; it.synced = false; save(); render()
+    if (navigator.onLine) syncPending()
+  }
+
+  /*********************************************************
+   *  Sync logic: queue pending items to Firebase realtime DB
+   *********************************************************/
+  async function syncPending(){
+    if (!navigator.onLine) return
+    updateStatus('online')
+    const pending = items.filter(i=> !i.synced)
+    for (const p of pending){
+      try{
+        // write to firebase at /checklist/{id}
+        await db.ref('checklist/'+p.id).set({
+          id: p.id,
+          name: p.name||'',
+          code: p.code||'',
+          expiry: p.expiry||'',
+          added: p.added||new Date().toISOString(),
+          done: !!p.done
+        })
+        // mark synced locally
+        p.synced = true
+        save()
+        render()
+      }catch(err){
+        console.warn('Sync failed for', p.id, err)
+      }
+    }
+  }
+
+  // monitor online/offline
+  function updateStatus(t){
+    statusBar.textContent = t === 'online' ? 'Online' : 'Offline'
+  }
+  window.addEventListener('online', ()=>{ updateStatus('online'); syncPending() })
+  window.addEventListener('offline', ()=> updateStatus('offline') )
+  updateStatus(navigator.onLine ? 'online':'offline')
+  if (navigator.onLine) syncPending()
+
+  /*********************************************************
+   *  Barcode scanning (html5-qrcode)
+   *********************************************************/
+  let html5QrcodeScanner = null
+  scanBtn.addEventListener('click', async ()=>{
+    if (readerDiv.style.display === 'none' || readerDiv.style.display === ''){
+      // show scanner
+      readerDiv.style.display = 'block'
+      startScanner()
+      scanBtn.textContent = 'Stop'
+    } else {
+      stopScanner()
+      readerDiv.style.display = 'none'
+      scanBtn.textContent = 'Scan'
+    }
+  })
+
+  function startScanner(){
+    // html5-qrcode usage
+    const config = { fps: 10, qrbox: {width:250, height:150}, formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.QR_CODE ] }
+    html5QrcodeScanner = new Html5Qrcode("reader")
     Html5Qrcode.getCameras().then(cameras => {
       if (cameras && cameras.length) {
-        let backCam = cameras.find(c =>
-          c.label.toLowerCase().includes("back") || 
-          c.label.toLowerCase().includes("rear")
-        );
-        let cameraId = backCam ? backCam.id : cameras[0].id;
-
-        html5QrCode.start(
-          cameraId,
-          { fps: 10, qrbox: 250 },
-          onScanSuccess
-        ).catch(err => console.error("Scanner error:", err));
+        const cameraId = cameras[0].id
+        html5QrcodeScanner.start(cameraId, config, qrCodeMessage => {
+          // on success
+          // fill barcodeInput
+          barcodeInput.value = qrCodeMessage.trim()
+          // try autofill name
+          fetchNameForCode(qrCodeMessage.trim()).then(name=>{ if(name) nameInput.value = name })
+          // stop scanner automatically after one read
+          stopScanner()
+          readerDiv.style.display = 'none'
+          scanBtn.textContent = 'Scan'
+        }, errorMessage => {
+          // ignore decode errors
+        }).catch(err => {
+          console.error('start failed', err)
+          alert('Scanner start failed: ' + err)
+        })
       } else {
-        alert("কোনো ক্যামেরা পাওয়া যায়নি!");
+        alert('কোন ক্যামেরা পাওয়া যায়নি')
       }
-    }).catch(err => console.error("Camera fetch error:", err));
+    }).catch(err=> { alert('ক্যামেরা access error: '+err) })
+  }
+
+  function stopScanner(){
+    if (!html5QrcodeScanner) return
+    html5QrcodeScanner.stop().then(() => {
+      html5QrcodeScanner.clear()
+      html5QrcodeScanner = null
+    }).catch(err => {
+      console.warn('stop error', err)
+    })
+  }
+
+  /*********************************************************
+   *  Auto-fill product name logic (Firebase -> OpenFoodFacts)
+   *********************************************************/
+  async function fetchNameForCode(code){
+    if (!code) return ''
+    try{
+      // 1) try Firebase products collection: /products/{code}/name
+      const snap = await db.ref('products/'+code+'/name').get()
+      if (snap && snap.exists()){
+        const val = snap.val()
+        if (val) return val
+      }
+    }catch(e){ console.warn('firebase lookup fail', e) }
+
+    // 2) fallback to OpenFoodFacts public API (if available)
+    try{
+      // some barcodes are numeric; sanitize
+      const sanitized = encodeURIComponent(code.trim())
+      const url = `https://world.openfoodfacts.org/api/v0/product/${sanitized}.json`
+      const res = await fetch(url)
+      if (res.ok){
+        const j = await res.json()
+        if (j && j.status === 1 && j.product){
+          // prefer localized name or generic product_name
+          const name = j.product.product_name || j.product.generic_name || ''
+          if (name) return name
+        }
+      }
+    }catch(e){ console.warn('OpenFoodFacts lookup fail', e) }
+
+    // not found
+    return ''
+  }
+
+  /*********************************************************
+   *  Export/Import CSV
+   *********************************************************/
+  exportBtn.addEventListener('click', ()=>{
+    if (!items || items.length===0) return alert('Export করার জন্য কোন ডাটা নেই')
+    const rows = [['id','name','code','expiry','added','done','synced']]
+    items.forEach(i=> rows.push([i.id, i.name, i.code, i.expiry, i.added, i.done, i.synced]))
+    const csv = rows.map(r=> r.map(c=> '"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\n')
+    const blob = new Blob([csv], {type:'text/csv'})
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'expiry-checklist.csv'; a.click(); URL.revokeObjectURL(url)
+  })
+
+  importBtn.addEventListener('click', ()=>{
+    const input = document.createElement('input'); input.type='file'; input.accept='.csv,text/csv'
+    input.onchange = e=>{
+      const f = e.target.files[0]; if (!f) return
+      const reader = new FileReader(); reader.onload = ev=>{
+        try{
+          const txt = ev.target.result
+          const rows = txt.split(/\r?\n/).map(r=> r.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c=> c.replace(/^"|"$/g,'')))
+          const header = rows.shift().map(h=>h.trim().toLowerCase())
+          rows.forEach(r=>{
+            if (r.length < 3) return
+            const obj = {}
+            header.forEach((h,i)=> obj[h]=r[i])
+            const item = {
+              id: obj.id || uid(),
+              name: obj.name || '',
+              code: obj.code || '',
+              expiry: obj.expiry || null,
+              added: obj.added || new Date().toISOString(),
+              done: obj.done === 'true',
+              synced: obj.synced === 'true'
+            }
+            items.push(item)
+          })
+          save(); render(); alert('Import complete')
+          if (navigator.onLine) syncPending()
+        }catch(err){ alert('Import failed: '+err.message) }
+      }
+      reader.readAsText(f)
+    }
+    input.click()
+  })
+
+  /*********************************************************
+   *  Utility buttons & events
+   *********************************************************/
+  sortBtn.addEventListener('click', ()=>{ sortAsc = !sortAsc; sortBtn.textContent = sortAsc? 'Sort by Date (asc)': 'Sort by Date (desc)'; render() })
+  searchInput.addEventListener('input', render)
+  filterEl.addEventListener('change', render)
+  clearAllBtn.addEventListener('click', ()=>{ if (!confirm('সব আইটেম মুছে ফেলতে চান?')) return; items=[]; save(); render() })
+
+  // set theme toggle
+  themeToggle.addEventListener('change', ()=>{
+    if (themeToggle.checked) document.documentElement.setAttribute('data-theme','dark')
+    else document.documentElement.removeAttribute('data-theme')
+  })
+
+  // initial render
+  render()
+
+  // attempt initial sync if online
+  if (navigator.onLine) syncPending()
+
+  /*********************************************************
+   *  OPTIONAL: register a simple service worker for PWA caching
+   *  Note: when you test locally via file:// service worker won't work.
+   *  Serve via localhost or a simple static server to test fully.
+   *********************************************************/
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw-expiry.js').then(()=> {
+      console.log('SW registered')
+    }).catch(()=>{})
+  }
+
+  /*********************************************************
+   *  Create a minimal service worker file in localStorage if not present
+   *  (This is a convenience — you should create a real sw-expiry.js file on your server)
+   *********************************************************/
+  (function ensureSWFile(){
+    // create a blob URL for service worker code and offer to download it
+    const swCode = `
+    const CACHE_NAME = 'expiry-cache-v1';
+    const FILES_TO_CACHE = [
+      '/',
+    ];
+    self.addEventListener('install', evt => {
+      self.skipWaiting();
+      evt.waitUntil(
+        caches.open(CACHE_NAME).then(cache => cache.addAll(FILES_TO_CACHE))
+      );
+    });
+    self.addEventListener('activate', evt => {
+      evt.waitUntil(self.clients.claim());
+    });
+    self.addEventListener('fetch', evt => {
+      if (evt.request.method !== 'GET') return;
+      evt.respondWith(
+        caches.match(evt.request).then(resp => resp || fetch(evt.request))
+      );
+    });
+    `;
+    // make downloadable sw-expiry.js for convenience
+    const existing = localStorage.getItem('sw-expiry.js')
+    if (!existing) {
+      localStorage.setItem('sw-expiry.js', swCode)
+      // provide a link in console to download the file for deployment
+      console.log('Service worker template saved in localStorage. To enable full PWA caching, create file sw-expiry.js on your server with contents from localStorage key "sw-expiry.js".')
+    }
+  })();
+
   </script>
 </body>
 </html>
